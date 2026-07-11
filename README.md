@@ -25,7 +25,7 @@ Close the window and it keeps working from the system tray. Left-click the tray 
 
 ### Windows
 
-1. Download or build `claude-timer-reset.exe` and run it.
+1. Download `claude-timer-reset.exe` from the [latest release](https://github.com/ozkanerbatuhan/claude-session-starter/releases/latest) (or build from source) and run it.
 2. Open **Settings** if you need to change anything (defaults work for standard npm installs):
 
    | Setting | Default | Notes |
