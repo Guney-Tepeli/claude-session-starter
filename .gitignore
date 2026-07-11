@@ -10,5 +10,4 @@
 config.json
 
 # Compiled binaries
-*.exe
 *.pdb

@@ -92,6 +92,7 @@ fn scheduler_loop(
     mut cooldown_seconds: u32,
 ) {
     let mut active = false;
+    let mut force_check = false;
     let mut next_check = Instant::now();
     let mut timer_target: Option<DateTime<Local>> = None;
 
@@ -110,7 +111,7 @@ fn scheduler_loop(
                     let _ = tx.send(Event::Log("⏹ Stopped".into()));
                 }
                 Ok(Command::CheckNow) => {
-                    next_check = Instant::now();
+                    force_check = true;
                 }
                 Ok(Command::UpdateConfig { claude_path: cp, model: m, message: msg,
                     check_interval_minutes: ci, cooldown_seconds: cs }) => {
@@ -127,11 +128,12 @@ fn scheduler_loop(
             }
         }
 
-        if active {
+        {
             let now_instant = Instant::now();
 
-            // ── Periodic /usage check ──
-            if now_instant >= next_check {
+            // ── Periodic /usage check (Check Now works even when stopped) ──
+            if force_check || (active && now_instant >= next_check) {
+                force_check = false;
                 let _ = tx.send(Event::Checking);
                 let _ = tx.send(Event::Log("📊 Checking /usage...".into()));
 
@@ -173,8 +175,8 @@ fn scheduler_loop(
                     now_instant + Duration::from_secs(check_interval_minutes as u64 * 60);
             }
 
-            // ── Timer check ──
-            if let Some(target) = timer_target {
+            // ── Timer check (only fires in autonomous mode) ──
+            if let Some(target) = timer_target.filter(|_| active) {
                 if Local::now() >= target {
                     timer_target = None;
                     let _ = tx.send(Event::Log(
@@ -185,8 +187,7 @@ fn scheduler_loop(
                     match runner.send_message(&model, &message) {
                         Ok(response) => {
                             let preview: String = response.chars().take(150).collect();
-                            let _ = tx.send(Event::MessageSent(preview.clone()));
-                            let _ = tx.send(Event::Log(format!("✓ Response: {}", preview)));
+                            let _ = tx.send(Event::MessageSent(preview));
                         }
                         Err(e) => {
                             let _ = tx.send(Event::Error(e));

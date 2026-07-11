@@ -5,9 +5,17 @@
 //! scheduler via channels.
 
 use std::path::PathBuf;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 use chrono::{DateTime, Local};
 use eframe::egui;
+use tray_icon::{
+    menu::{Menu, MenuEvent, MenuItem},
+    MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent,
+};
 
 use crate::config::Config;
 use crate::scheduler::{Command, Event, Scheduler};
@@ -49,6 +57,10 @@ pub struct App {
     edit_claude_path: String,
     edit_check_interval: String,
     edit_cooldown: String,
+
+    // Tray icon state
+    _tray_icon: Option<TrayIcon>,
+    should_close: Arc<AtomicBool>,
 }
 
 impl App {
@@ -78,6 +90,67 @@ impl App {
 
         let auto_start = config.auto_start;
 
+        let menu = Menu::new();
+        let show_item = MenuItem::new("Show", true, None);
+        let exit_item = MenuItem::new("Exit", true, None);
+        let _ = menu.append(&show_item);
+        let _ = menu.append(&exit_item);
+
+        let icon = load_tray_icon().unwrap_or_else(create_tray_icon);
+
+        let tray_icon = TrayIconBuilder::new()
+            .with_menu(Box::new(menu))
+            .with_icon(icon)
+            .with_tooltip("Claude Timer Reset")
+            .build()
+            .ok();
+
+        let should_close = Arc::new(AtomicBool::new(false));
+
+        let ctx_clone = cc.egui_ctx.clone();
+        let show_id = show_item.id().clone();
+        let exit_id = exit_item.id().clone();
+        let close_flag = should_close.clone();
+
+        std::thread::spawn(move || {
+            let show_window = |ctx: &egui::Context| {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                ctx.request_repaint();
+            };
+
+            let menu_rx = MenuEvent::receiver();
+            let tray_rx = TrayIconEvent::receiver();
+            loop {
+                while let Ok(event) = menu_rx.try_recv() {
+                    if event.id == show_id {
+                        show_window(&ctx_clone);
+                    } else if event.id == exit_id {
+                        close_flag.store(true, Ordering::SeqCst);
+                        ctx_clone.send_viewport_cmd(egui::ViewportCommand::Visible(true));
+                        ctx_clone.send_viewport_cmd(egui::ViewportCommand::Close);
+                        ctx_clone.request_repaint();
+                    }
+                }
+                // Left-click (or double-click) on the tray icon itself restores the window
+                while let Ok(event) = tray_rx.try_recv() {
+                    match event {
+                        TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        }
+                        | TrayIconEvent::DoubleClick {
+                            button: MouseButton::Left,
+                            ..
+                        } => show_window(&ctx_clone),
+                        _ => {}
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        });
+
         let mut app = Self {
             edit_model: config.default_model.clone(),
             edit_message: config.test_message.clone(),
@@ -96,6 +169,8 @@ impl App {
             checking: false,
             last_error: None,
             log_entries: Vec::new(),
+            _tray_icon: tray_icon,
+            should_close,
         };
 
         if auto_start {
@@ -117,6 +192,8 @@ impl App {
     fn stop(&mut self) {
         self.active = false;
         self.status = "Stopped".into();
+        self.timer_target = None;
+        self.checking = false;
         let _ = self.scheduler.cmd_tx.send(Command::Stop);
     }
 
@@ -152,7 +229,7 @@ impl App {
                     self.reset_time = info.reset_time;
                     self.week_percent = info.week_percent;
                     self.checking = false;
-                    self.status = "Running".into();
+                    self.status = if self.active { "Running".into() } else { "Stopped".into() };
                     self.last_error = None;
                 }
                 Event::TimerSet(target) => {
@@ -161,7 +238,7 @@ impl App {
                 Event::MessageSent(response) => {
                     self.log(&format!("✓ Response: {}", response));
                     self.timer_target = None;
-                    self.status = "Running".into();
+                    self.status = if self.active { "Running".into() } else { "Stopped".into() };
                 }
                 Event::Error(err) => {
                     self.last_error = Some(err.clone());
@@ -203,6 +280,15 @@ impl Drop for App {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.process_events();
+
+        // ── Handle Close Button Request ──
+        // X button hides to tray; only the tray "Exit" item really closes.
+        if ctx.input(|i| i.viewport().close_requested())
+            && !self.should_close.load(Ordering::SeqCst)
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+        }
 
         // Repaint every second for timer countdown
         ctx.request_repaint_after(std::time::Duration::from_secs(1));
@@ -521,4 +607,50 @@ impl App {
                     });
             });
     }
+}
+
+fn create_tray_icon() -> tray_icon::Icon {
+    let width = 32;
+    let height = 32;
+    let mut rgba = vec![0u8; (width * height * 4) as usize];
+    for y in 0..height {
+        for x in 0..width {
+            let idx = ((y * width + x) * 4) as usize;
+            let cx = width as f32 / 2.0;
+            let cy = height as f32 / 2.0;
+            let dx = x as f32 + 0.5 - cx;
+            let dy = y as f32 + 0.5 - cy;
+            let dist_sq = dx * dx + dy * dy;
+            let radius = width as f32 / 2.0 - 2.0;
+            if dist_sq <= radius * radius {
+                rgba[idx] = 110;     // R
+                rgba[idx + 1] = 64;  // G
+                rgba[idx + 2] = 201; // B
+                rgba[idx + 3] = 255; // A
+            } else {
+                rgba[idx + 3] = 0;
+            }
+        }
+    }
+    tray_icon::Icon::from_rgba(rgba, width, height).unwrap()
+}
+
+fn load_tray_icon() -> Option<tray_icon::Icon> {
+    // Try cwd first, then the directory next to the executable (cwd differs
+    // when launched from a shortcut or Windows startup).
+    let mut path = PathBuf::from("assets/icon.png");
+    if !path.exists() {
+        path = std::env::current_exe()
+            .ok()?
+            .parent()?
+            .join("assets")
+            .join("icon.png");
+        if !path.exists() {
+            return None;
+        }
+    }
+    let img = image::open(&path).ok()?;
+    let rgba = img.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    tray_icon::Icon::from_rgba(rgba.into_raw(), width, height).ok()
 }
