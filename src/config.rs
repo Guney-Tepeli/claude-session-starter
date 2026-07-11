@@ -59,20 +59,50 @@ impl Config {
     }
 }
 
-/// Auto-detect `claude.cmd` on Windows.
+/// Auto-detect the Claude CLI binary for the current platform.
 pub fn detect_claude_path() -> String {
-    // 1. Common npm global install location
-    if let Ok(appdata) = std::env::var("APPDATA") {
-        let npm_path = PathBuf::from(&appdata).join("npm").join("claude.cmd");
-        if npm_path.exists() {
-            return npm_path.to_string_lossy().into_owned();
+    // 1. Common install locations
+    #[cfg(windows)]
+    {
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let npm_path = PathBuf::from(&appdata).join("npm").join("claude.cmd");
+            if npm_path.exists() {
+                return npm_path.to_string_lossy().into_owned();
+            }
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            for rel in [
+                ".claude/local/claude", // native installer
+                ".local/bin/claude",
+                ".npm-global/bin/claude",
+            ] {
+                let candidate = PathBuf::from(&home).join(rel);
+                if candidate.exists() {
+                    return candidate.to_string_lossy().into_owned();
+                }
+            }
+        }
+        for abs in ["/opt/homebrew/bin/claude", "/usr/local/bin/claude"] {
+            if Path::new(abs).exists() {
+                return abs.to_string();
+            }
         }
     }
 
     // 2. Search PATH
+    let sep = if cfg!(windows) { ';' } else { ':' };
+    let names: &[&str] = if cfg!(windows) {
+        &["claude.cmd", "claude.exe", "claude"]
+    } else {
+        &["claude"]
+    };
     if let Ok(path_var) = std::env::var("PATH") {
-        for dir in path_var.split(';') {
-            for name in &["claude.cmd", "claude.exe", "claude"] {
+        for dir in path_var.split(sep) {
+            for name in names {
                 let candidate = PathBuf::from(dir).join(name);
                 if candidate.exists() {
                     return candidate.to_string_lossy().into_owned();

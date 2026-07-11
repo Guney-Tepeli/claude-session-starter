@@ -1,47 +1,81 @@
-# Claude Timer Reset ⏰
+# Claude Timer Reset
 
-An autonomous, lightweight (5MB), native Windows desktop application to track Claude CLI session usage and automatically restart your session when it resets.
+A tiny native desktop app that tracks your Claude CLI session usage and automatically starts a fresh session the moment your limit resets — so a new 5-hour window is always ticking when you sit down to work.
 
 ![Screenshot](screenshot.png)
 
-## Why Rust?
-- **Ultra-lightweight:** Consumes only ~10-15MB RAM (10x lighter than typical Electron applications).
-- **Zero Installation:** Provided as a single standalone `.exe` binary. No Python, Node.js, or dependencies required to run.
-- **Native Look & Feel:** Sleek, modern dark-theme interface powered by Rust's `egui` framework.
+## How it works
+
+1. On a configurable interval, the app runs `claude -p "/usage"` in the background and parses your session usage percentage and the reset time (e.g. `resets Jul 11, 12:30pm`).
+2. It schedules a countdown targeting the reset time plus a small safety cooldown (default +60 s, to let server clocks sync).
+3. When the countdown hits zero, it sends one lightweight prompt (default model: `haiku`) to open a fresh session, then re-checks usage to schedule the next cycle.
+
+Close the window and it keeps working from the system tray. Left-click the tray icon to bring the window back; right-click for **Open** / **Quit**.
 
 ## Features
-- 📊 **Autonomous Tracking:** Runs `claude -p "/usage"` in the background to automatically parse your current usage percentage and session reset time (e.g. `resets Jul 11, 12:30pm`).
-- ⏱ **Auto-Timer:** Automatically schedules a countdown timer targeting the exact second of the reset (plus a configurable safety cooldown, e.g. +60 seconds).
-- 🤖 **Auto-Start:** When the countdown timer expires, it sends a lightweight prompt (`this is a test message`) using the Haiku model to otonomously establish and initialize a fresh 5-hour session.
-- 🕒 **Periodic Refresh:** Checks status at configurable intervals (e.g. every 60 minutes) to keep timers accurate.
-- 💾 **Collapsible Widgets:** Compact, minimalist interface with collapsible Settings and Logs.
-- 🔒 **Single Instance Mutex:** Prevents duplicate app instances from running simultaneously.
-- 💻 **No Console Window:** Hidden background subsystem. Zero CMD console flashing or lingering terminal windows.
 
-## Getting Started
+- **Autonomous** — check → schedule → trigger → repeat, no interaction needed after pressing Start.
+- **Lightweight** — single native binary (~7 MB), ~10–15 MB RAM. No Node, no Python, no Electron.
+- **Tray-first** — closing the window hides it to the tray; the scheduler keeps running in the background.
+- **Live dashboard** — big countdown to the next session, session/weekly usage bars, event log.
+- **No console flashing** — Claude CLI calls run fully hidden (no terminal windows popping up).
+- **Auto-detects the Claude CLI** — finds `claude` in the usual npm/Homebrew/native-installer locations, or set the path manually in Settings.
 
-1. Download [claude-timer-reset.exe](claude-timer-reset.exe).
-2. Configure settings:
-   - **Model:** `haiku` (recommended for minimal limit usage), `sonnet`, or `opus`.
-   - **Message:** The message to trigger the fresh session (default: `this is a test message`).
-   - **Claude Path:** Automatically detected on standard Windows npm setups. If custom, provide the absolute path.
-   - **Check Interval:** Frequency in minutes to check usage (default: `60`).
-   - **Wait after reset:** Cooldown in seconds to wait after reset time before triggering (at least `60` seconds recommended to allow server clocks to sync).
-3. Click **`▶ Start`**. The application will enter autonomous mode, perform checks, and start the countdown.
+## Getting started
 
-## Building from Source
+### Windows
 
-To compile the application yourself, ensure you have Rust installed and run:
+1. Download or build `claude-timer-reset.exe` and run it.
+2. Open **Settings** if you need to change anything (defaults work for standard npm installs):
+
+   | Setting | Default | Notes |
+   |---|---|---|
+   | Model | `haiku` | Cheapest way to open a session (`sonnet`, `opus` also available) |
+   | Message | test message | The prompt sent to start the fresh session |
+   | Claude path | auto-detected | Absolute path to `claude.cmd` / `claude` if detection fails |
+   | Check interval | 60 min | How often `/usage` is polled |
+   | Wait after reset | 60 s | Cooldown after the reset time before triggering |
+
+3. Press **Start**. The app checks usage, schedules the countdown, and takes it from there. Settings (including the running state) persist to `config.json` next to the app, so it resumes automatically on next launch.
+
+### macOS
+
+Build from source (see below) — the tray, window handling, and CLI detection (`~/.claude/local`, `~/.local/bin`, Homebrew paths) are wired for macOS, but this platform hasn't been battle-tested yet. Issues welcome.
+
+```bash
+cargo build --release
+./target/release/claude-timer-reset
+```
+
+## Building from source
+
+Requires [Rust](https://rustup.rs/) (stable).
 
 ```bash
 cargo build --release
 ```
 
-The optimized binary will be created at `target/release/claude-timer-reset.exe`.
+The optimized binary lands in `target/release/`. To get the custom tray icon, keep an `assets/icon.png` next to the binary (a built-in fallback icon is used otherwise).
 
 ## Requirements
-- Windows 10 / 11
-- Installed global Claude CLI (`npm install -g @anthropic-ai/claude-code`)
+
+- Windows 10/11 or macOS
+- Claude CLI installed and authenticated (`npm install -g @anthropic-ai/claude-code`)
+
+## Architecture
+
+```
+src/
+├── main.rs           # eframe entry point
+├── app.rs            # egui UI, tray icon, native window show/hide
+├── scheduler.rs      # background thread: usage checks + countdown + trigger
+├── claude_runner.rs  # Claude CLI subprocess wrapper (hidden console)
+├── usage_parser.rs   # parses `/usage` output (percentages, reset time)
+└── config.rs         # config.json persistence + CLI auto-detection
+```
+
+The UI and the scheduler run on separate threads and talk over `mpsc` channels — the UI never blocks on a CLI call.
 
 ## License
+
 MIT
