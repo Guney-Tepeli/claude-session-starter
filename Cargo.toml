@@ -1,0 +1,18 @@
+[package]
+name = "claude-timer-reset"
+version = "1.0.0"
+edition = "2021"
+description = "Lightweight Windows app for Claude CLI session scheduling and auto-restart"
+
+[dependencies]
+eframe = "0.29"
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+
+[profile.release]
+opt-level = "s"
+strip = true
+lto = true
+codegen-units = 1

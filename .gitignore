@@ -1,0 +1,14 @@
+# Rust compilation outputs
+/target
+/build_out
+
+# IDEs
+.idea/
+.vscode/
+
+# Local configurations
+config.json
+
+# Compiled binaries
+*.exe
+*.pdb
