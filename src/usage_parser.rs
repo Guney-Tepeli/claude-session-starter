@@ -20,8 +20,9 @@ pub struct UsageInfo {
 pub fn parse_usage(output: &str) -> Option<UsageInfo> {
     // Match: "Current session: 68% used · resets Jul 11, 12:30pm (..."
     // The · is a middle-dot; use .*? to be flexible
+    // Minutes are omitted for on-the-hour resets: "5pm" instead of "5:00pm"
     let session_re = Regex::new(
-        r"Current session:\s+(\d+)%\s+used\s+.*?resets\s+(\w+)\s+(\d+),\s*(\d+):(\d+)(am|pm)",
+        r"Current session:\s+(\d+)%\s+used\s+.*?resets\s+(\w+)\s+(\d+),\s*(\d+)(?::(\d+))?(am|pm)",
     )
     .ok()?;
 
@@ -31,7 +32,9 @@ pub fn parse_usage(output: &str) -> Option<UsageInfo> {
     let month_str = caps.get(2)?.as_str();
     let day: u32 = caps.get(3)?.as_str().parse().ok()?;
     let hour: u32 = caps.get(4)?.as_str().parse().ok()?;
-    let minute: u32 = caps.get(5)?.as_str().parse().ok()?;
+    let minute: u32 = caps
+        .get(5)
+        .map_or(Some(0), |m| m.as_str().parse().ok())?;
     let ampm = caps.get(6)?.as_str();
 
     let reset_time = build_datetime(month_str, day, hour, minute, ampm);
@@ -118,6 +121,16 @@ Current week (Fable): 22% used · resets Jul 11, 4pm (Europe/Istanbul)"#;
         assert_eq!(info.session_percent, 68);
         assert!(info.reset_time.is_some());
         assert_eq!(info.week_percent, Some(12));
+    }
+
+    #[test]
+    fn test_parse_on_the_hour_reset() {
+        // CLI omits minutes when the reset is on the hour
+        let output = "Current session: 22% used · resets Jul 12, 5pm (Europe/Istanbul)";
+        let info = parse_usage(output).expect("Should parse minute-less time");
+        assert_eq!(info.session_percent, 22);
+        let reset = info.reset_time.expect("Should have reset time");
+        assert_eq!(reset.format("%H:%M").to_string(), "17:00");
     }
 
     #[test]
