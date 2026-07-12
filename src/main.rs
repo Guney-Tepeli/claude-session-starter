@@ -3,6 +3,7 @@
 mod app;
 mod claude_runner;
 mod config;
+mod logger;
 mod scheduler;
 mod usage_parser;
 

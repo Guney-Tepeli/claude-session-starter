@@ -229,6 +229,12 @@ impl App {
             .join("config.json");
         let config = Config::load(&config_path);
 
+        crate::logger::log(&format!(
+            "── app started · v{} · claude_path: {}",
+            env!("CARGO_PKG_VERSION"),
+            config.claude_path
+        ));
+
         // ── Scheduler ──
         let scheduler = Scheduler::new(
             config.claude_path.clone(),
