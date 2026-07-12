@@ -141,23 +141,48 @@ fn scheduler_loop(
                 match runner.check_usage() {
                     Ok(output) => {
                         if let Some(info) = usage_parser::parse_usage(&output) {
-                            if let Some(reset) = info.reset_time {
-                                let target =
-                                    reset + chrono::Duration::seconds(cooldown_seconds as i64);
-                                timer_target = Some(target);
+                            let now = Local::now();
+                            match info.reset_time {
+                                // A session window lasts at most 5 hours. A reset further
+                                // out means there is no active session and /usage reported
+                                // the weekly reset instead — nothing to wait for.
+                                Some(reset)
+                                    if reset - now <= chrono::Duration::minutes(5 * 60 + 5) =>
+                                {
+                                    let target = reset
+                                        + chrono::Duration::seconds(cooldown_seconds as i64);
+                                    timer_target = Some(target);
 
-                                let _ = tx.send(Event::UsageChecked(info));
-                                let _ = tx.send(Event::TimerSet(target));
-                                let _ = tx.send(Event::Log(format!(
-                                    "⏰ Reset: {} → Timer: {}",
-                                    reset.format("%H:%M"),
-                                    target.format("%H:%M:%S")
-                                )));
-                            } else {
-                                let _ = tx.send(Event::UsageChecked(info));
-                                let _ = tx.send(Event::Log(
-                                    "⚠ Could not parse reset time".into(),
-                                ));
+                                    let _ = tx.send(Event::UsageChecked(info));
+                                    let _ = tx.send(Event::TimerSet(target));
+                                    let _ = tx.send(Event::Log(format!(
+                                        "⏰ Reset: {} → Timer: {}",
+                                        reset.format("%H:%M"),
+                                        target.format("%H:%M:%S")
+                                    )));
+                                }
+                                Some(_) => {
+                                    let _ = tx.send(Event::UsageChecked(info));
+                                    if active {
+                                        let _ = tx.send(Event::Log(
+                                            "💤 No active session — starting one now".into(),
+                                        ));
+                                        // Fires in the timer check below
+                                        timer_target = Some(now);
+                                        let _ = tx.send(Event::TimerSet(now));
+                                    } else {
+                                        let _ = tx.send(Event::Log(
+                                            "💤 No active session (press Start to open one)"
+                                                .into(),
+                                        ));
+                                    }
+                                }
+                                None => {
+                                    let _ = tx.send(Event::UsageChecked(info));
+                                    let _ = tx.send(Event::Log(
+                                        "⚠ Could not parse reset time".into(),
+                                    ));
+                                }
                             }
                         } else {
                             let _ = tx.send(Event::Error("Could not parse usage output".into()));

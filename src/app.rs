@@ -520,10 +520,15 @@ impl App {
                             .strong()
                             .color(if secs < 300 { RED } else { TEXT }),
                     );
+                    let starts = if target.date_naive() == Local::now().date_naive() {
+                        target.format("%H:%M:%S").to_string()
+                    } else {
+                        target.format("%b %d, %H:%M:%S").to_string()
+                    };
                     ui.label(
                         egui::RichText::new(format!(
                             "starts {} · sends \"{}\" on {}",
-                            target.format("%H:%M:%S"),
+                            starts,
                             truncate(&self.config.test_message, 24),
                             self.config.default_model
                         ))
