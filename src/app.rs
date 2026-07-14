@@ -62,6 +62,9 @@ pub struct App {
     edit_claude_path: String,
     edit_check_interval: String,
     edit_cooldown: String,
+    // Whether the app is registered to launch at Windows login. Mirrors the
+    // registry (the source of truth); toggling writes it through immediately.
+    launch_at_startup: bool,
 
     // Self-update
     updater: Updater,
@@ -310,6 +313,7 @@ impl App {
             edit_claude_path: config.claude_path.clone(),
             edit_check_interval: config.check_interval_minutes.to_string(),
             edit_cooldown: config.cooldown_seconds.to_string(),
+            launch_at_startup: crate::startup::is_enabled(),
             config,
             config_path,
             scheduler,
@@ -921,6 +925,30 @@ impl App {
                             );
                             ui.label(egui::RichText::new("seconds").size(10.5).color(FOG));
                         });
+                        ui.end_row();
+
+                        // Launch at startup — writes the Windows Run key
+                        // immediately on toggle (independent of Save settings).
+                        ui.label(egui::RichText::new("Launch at startup").size(11.5).color(FOG));
+                        let mut want_startup = self.launch_at_startup;
+                        if ui
+                            .checkbox(&mut want_startup, "Run when Windows starts")
+                            .changed()
+                        {
+                            match crate::startup::set_enabled(want_startup) {
+                                Ok(()) => {
+                                    self.launch_at_startup = want_startup;
+                                    self.log(if want_startup {
+                                        "✓ Launch at startup enabled"
+                                    } else {
+                                        "✓ Launch at startup disabled"
+                                    });
+                                }
+                                // Leave the stored flag untouched so the
+                                // checkbox snaps back to its real state.
+                                Err(e) => self.log(&format!("⚠ Launch at startup: {}", e)),
+                            }
+                        }
                         ui.end_row();
                     });
 

@@ -35,6 +35,7 @@ Close the window and it keeps working from the system tray. Left-click the tray 
    | Claude path | auto-detected | Absolute path to `claude.cmd` / `claude` if detection fails |
    | Check interval | 60 min | How often `/usage` is polled |
    | Wait after reset | 60 s | Cooldown after the reset time before triggering |
+   | Launch at startup | off | Run the app automatically at Windows login (per-user, no admin needed) |
 
 3. Press **Start**. The app checks usage, schedules the countdown, and takes it from there. Settings (including the running state) persist to `config.json` next to the app, so it resumes automatically on next launch.
 
@@ -71,6 +72,9 @@ src/
 ├── scheduler.rs      # background thread: usage checks + countdown + trigger
 ├── claude_runner.rs  # Claude CLI subprocess wrapper (hidden console)
 ├── usage_parser.rs   # parses `/usage` output (percentages, reset time)
+├── startup.rs        # "launch at login" via the Windows Run registry key
+├── logger.rs         # persistent app.log with auto-trim
+├── updater.rs        # in-app self-update from GitHub Releases
 └── config.rs         # config.json persistence + CLI auto-detection
 ```
 
