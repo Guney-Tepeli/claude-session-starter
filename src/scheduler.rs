@@ -103,12 +103,12 @@ fn scheduler_loop(
                 Ok(Command::Start) => {
                     active = true;
                     next_check = Instant::now(); // check immediately
-                    emit(&tx,Event::Log("▶ Autonomous mode started".into()));
+                    emit(&tx, Event::Log("▶ Autonomous mode started".into()));
                 }
                 Ok(Command::Stop) => {
                     active = false;
                     timer_target = None;
-                    emit(&tx,Event::Log("⏹ Stopped".into()));
+                    emit(&tx, Event::Log("⏹ Stopped".into()));
                 }
                 Ok(Command::CheckNow) => {
                     force_check = true;
@@ -120,7 +120,7 @@ fn scheduler_loop(
                     message = msg;
                     check_interval_minutes = ci;
                     cooldown_seconds = cs;
-                    emit(&tx,Event::Log("✓ Configuration updated".into()));
+                    emit(&tx, Event::Log("✓ Configuration updated".into()));
                 }
                 Ok(Command::Quit) => return,
                 Err(mpsc::TryRecvError::Empty) => break,
@@ -134,8 +134,8 @@ fn scheduler_loop(
             // ── Periodic /usage check (Check Now works even when stopped) ──
             if force_check || (active && now_instant >= next_check) {
                 force_check = false;
-                emit(&tx,Event::Checking);
-                emit(&tx,Event::Log("📊 Checking /usage...".into()));
+                emit(&tx, Event::Checking);
+                emit(&tx, Event::Log("📊 Checking /usage...".into()));
 
                 let runner = ClaudeRunner::new(&claude_path);
                 match runner.check_usage() {
@@ -153,47 +153,47 @@ fn scheduler_loop(
                                         + chrono::Duration::seconds(cooldown_seconds as i64);
                                     timer_target = Some(target);
 
-                                    emit(&tx,Event::UsageChecked(info));
-                                    emit(&tx,Event::TimerSet(target));
-                                    emit(&tx,Event::Log(format!(
+                                    emit(&tx, Event::UsageChecked(info));
+                                    emit(&tx, Event::TimerSet(target));
+                                    emit(&tx, Event::Log(format!(
                                         "⏰ Reset: {} → Timer: {}",
                                         reset.format("%H:%M"),
                                         target.format("%H:%M:%S")
                                     )));
                                 }
                                 Some(_) => {
-                                    emit(&tx,Event::UsageChecked(info));
+                                    emit(&tx, Event::UsageChecked(info));
                                     if active {
-                                        emit(&tx,Event::Log(
+                                        emit(&tx, Event::Log(
                                             "💤 No active session — starting one now".into(),
                                         ));
                                         // Fires in the timer check below
                                         timer_target = Some(now);
-                                        emit(&tx,Event::TimerSet(now));
+                                        emit(&tx, Event::TimerSet(now));
                                     } else {
-                                        emit(&tx,Event::Log(
+                                        emit(&tx, Event::Log(
                                             "💤 No active session (press Start to open one)"
                                                 .into(),
                                         ));
                                     }
                                 }
                                 None => {
-                                    emit(&tx,Event::UsageChecked(info));
-                                    emit(&tx,Event::Log(
+                                    emit(&tx, Event::UsageChecked(info));
+                                    emit(&tx, Event::Log(
                                         "⚠ Could not parse reset time".into(),
                                     ));
                                 }
                             }
                         } else {
-                            emit(&tx,Event::Error("Could not parse usage output".into()));
+                            emit(&tx, Event::Error("Could not parse usage output".into()));
                             // Full raw output goes to app.log; UI gets a preview
                             crate::logger::log(&format!("RAW /usage output:\n{}", output));
                             let preview: String = output.chars().take(200).collect();
-                            emit(&tx,Event::Log(format!("Raw: {}", preview)));
+                            emit(&tx, Event::Log(format!("Raw: {}", preview)));
                         }
                     }
                     Err(e) => {
-                        emit(&tx,Event::Error(e));
+                        emit(&tx, Event::Error(e));
                     }
                 }
 
@@ -205,7 +205,7 @@ fn scheduler_loop(
             if let Some(target) = timer_target.filter(|_| active) {
                 if Local::now() >= target {
                     timer_target = None;
-                    emit(&tx,Event::Log(
+                    emit(&tx, Event::Log(
                         "🤖 Session reset! Sending message...".into(),
                     ));
 
@@ -213,10 +213,10 @@ fn scheduler_loop(
                     match runner.send_message(&model, &message) {
                         Ok(response) => {
                             let preview: String = response.chars().take(150).collect();
-                            emit(&tx,Event::MessageSent(preview));
+                            emit(&tx, Event::MessageSent(preview));
                         }
                         Err(e) => {
-                            emit(&tx,Event::Error(e));
+                            emit(&tx, Event::Error(e));
                         }
                     }
 

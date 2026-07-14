@@ -4,6 +4,7 @@
 //! settings panel, and scrollable log. Communicates with the background
 //! scheduler via channels.
 
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -53,7 +54,7 @@ pub struct App {
     last_error: Option<String>,
 
     // Log
-    log_entries: Vec<String>,
+    log_entries: VecDeque<String>,
 
     // Editable settings (bound to UI widgets)
     edit_model: String,
@@ -300,7 +301,7 @@ impl App {
             week_percent: None,
             checking: false,
             last_error: None,
-            log_entries: Vec::new(),
+            log_entries: VecDeque::new(),
             hwnd,
             #[cfg(not(windows))]
             _tray_icon: tray_icon,
@@ -339,10 +340,17 @@ impl App {
         self.config.claude_path = self.edit_claude_path.clone();
         self.config.default_model = self.edit_model.clone();
         self.config.test_message = self.edit_message.clone();
-        self.config.check_interval_minutes = self.edit_check_interval.parse().unwrap_or(60);
+        // A 0-minute interval would make the scheduler hammer the Claude CLI
+        // once per second (its 1s poll loop), so floor it at 1.
+        self.config.check_interval_minutes =
+            self.edit_check_interval.parse::<u32>().unwrap_or(60).max(1);
         self.config.cooldown_seconds = self.edit_cooldown.parse().unwrap_or(60);
         self.config.auto_start = self.active;
         self.config.save(&self.config_path);
+
+        // Reflect any clamping back into the editable fields so the UI
+        // doesn't silently disagree with what was actually saved.
+        self.edit_check_interval = self.config.check_interval_minutes.to_string();
 
         let _ = self.scheduler.cmd_tx.send(Command::UpdateConfig {
             claude_path: self.config.claude_path.clone(),
@@ -351,6 +359,17 @@ impl App {
             check_interval_minutes: self.config.check_interval_minutes,
             cooldown_seconds: self.config.cooldown_seconds,
         });
+    }
+
+    /// Fill the editable fields with factory defaults. Does not persist —
+    /// the user still needs to press "Save settings" to apply.
+    fn reset_settings_to_defaults(&mut self) {
+        let defaults = Config::default();
+        self.edit_model = defaults.default_model;
+        self.edit_message = defaults.test_message;
+        self.edit_claude_path = defaults.claude_path;
+        self.edit_check_interval = defaults.check_interval_minutes.to_string();
+        self.edit_cooldown = defaults.cooldown_seconds.to_string();
     }
 
     // ── Event processing ─────────────────────────────────────────────────────
@@ -393,10 +412,10 @@ impl App {
 
     fn log(&mut self, msg: &str) {
         let ts = Local::now().format("%H:%M:%S");
-        self.log_entries.push(format!("[{}] {}", ts, msg));
+        self.log_entries.push_back(format!("[{}] {}", ts, msg));
         // Keep last 200 entries
         if self.log_entries.len() > 200 {
-            self.log_entries.remove(0);
+            self.log_entries.pop_front();
         }
     }
 
@@ -756,13 +775,22 @@ impl App {
                     });
 
                 ui.add_space(8.0);
-                if ui
-                    .add(egui::Button::new(egui::RichText::new("Save settings").size(12.0)))
-                    .clicked()
-                {
-                    self.save_config();
-                    self.log("✓ Settings saved");
-                }
+                ui.horizontal(|ui| {
+                    if ui
+                        .add(egui::Button::new(egui::RichText::new("Save settings").size(12.0)))
+                        .clicked()
+                    {
+                        self.save_config();
+                        self.log("✓ Settings saved");
+                    }
+                    if ui
+                        .add(egui::Button::new(egui::RichText::new("Reset to defaults").size(12.0)))
+                        .clicked()
+                    {
+                        self.reset_settings_to_defaults();
+                        self.log("↺ Settings reset to defaults (not yet saved)");
+                    }
+                });
             });
         });
     }
@@ -790,6 +818,15 @@ impl App {
                             |ui| {
                                 if ui.small_button("Clear").clicked() {
                                     self.log_entries.clear();
+                                }
+                                if ui.small_button("Copy").clicked() {
+                                    let text = self
+                                        .log_entries
+                                        .iter()
+                                        .cloned()
+                                        .collect::<Vec<_>>()
+                                        .join("\n");
+                                    ui.output_mut(|o| o.copied_text = text);
                                 }
                             },
                         );
