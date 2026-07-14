@@ -248,10 +248,23 @@ impl App {
         cc.egui_ctx.set_visuals(visuals);
 
         // ── Config ──
-        let config_path = std::env::current_dir()
+        // Anchor config.json to the exe's directory, not the working directory:
+        // when launched from the Windows Run key (launch at startup) the cwd is
+        // C:\Windows\System32, where the config can be neither found nor saved.
+        let config_path = std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(|d| d.join("config.json")))
+            .unwrap_or_else(|| PathBuf::from("config.json"));
+        // Migrate a config.json from the old cwd-based location: load it once;
+        // the next save lands next to the exe.
+        let legacy_path = std::env::current_dir()
             .unwrap_or_else(|_| PathBuf::from("."))
             .join("config.json");
-        let config = Config::load(&config_path);
+        let config = if !config_path.exists() && legacy_path.exists() {
+            Config::load(&legacy_path)
+        } else {
+            Config::load(&config_path)
+        };
 
         crate::logger::log(&format!(
             "── app started · v{} · claude_path: {}",
@@ -307,13 +320,20 @@ impl App {
         #[cfg(not(windows))]
         let tray_icon = build_tray(hwnd, &cc.egui_ctx, should_close.clone());
 
+        // Refresh the Run-key entry so it always points at the current exe
+        // path — heals a stale entry after the exe is moved or renamed.
+        let launch_at_startup = crate::startup::is_enabled();
+        if launch_at_startup {
+            let _ = crate::startup::set_enabled(true);
+        }
+
         let mut app = Self {
             edit_model: config.default_model.clone(),
             edit_message: config.test_message.clone(),
             edit_claude_path: config.claude_path.clone(),
             edit_check_interval: config.check_interval_minutes.to_string(),
             edit_cooldown: config.cooldown_seconds.to_string(),
-            launch_at_startup: crate::startup::is_enabled(),
+            launch_at_startup,
             config,
             config_path,
             scheduler,
