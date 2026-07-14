@@ -1,6 +1,6 @@
 [package]
 name = "claude-timer-reset"
-version = "1.1.4"
+version = "1.2.0"
 edition = "2021"
 description = "Lightweight Windows app for Claude CLI session scheduling and auto-restart"
 
@@ -13,6 +13,7 @@ regex = "1"
 tray-icon = "0.19"
 image = "0.25"
 raw-window-handle = "0.6"
+ureq = "2"
 
 [target.'cfg(windows)'.build-dependencies]
 winresource = "0.1"

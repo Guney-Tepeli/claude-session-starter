@@ -5,6 +5,7 @@ mod claude_runner;
 mod config;
 mod logger;
 mod scheduler;
+mod updater;
 mod usage_parser;
 
 use eframe::egui;
@@ -28,6 +29,9 @@ fn load_app_icon() -> egui::IconData {
 }
 
 fn main() -> eframe::Result<()> {
+    // Clean up the `<exe>.old` left behind by a previous self-update
+    updater::remove_stale_backup();
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([400.0, 520.0])

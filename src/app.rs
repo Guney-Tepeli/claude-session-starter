@@ -63,6 +63,10 @@ pub struct App {
     edit_check_interval: String,
     edit_cooldown: String,
 
+    // Self-update
+    updater: Updater,
+    update_state: Option<UpdateState>,
+
     // Native window / tray state
     hwnd: isize,
     #[cfg(not(windows))]
@@ -70,8 +74,24 @@ pub struct App {
     should_close: Arc<AtomicBool>,
 }
 
+/// Deferred banner button action (resolved after the frame closure ends,
+/// since the closure borrows `self.update_state`).
+enum UpdateBannerAction {
+    Download,
+    Dismiss,
+    Restart,
+}
+
+/// UI-side state of the self-update flow.
+enum UpdateState {
+    Available { version: String, url: String },
+    Downloading,
+    Ready,
+}
+
 use crate::config::Config;
 use crate::scheduler::{Command, Event, Scheduler};
+use crate::updater::{UpdateCommand, UpdateEvent, Updater};
 
 // ── Native window helpers ────────────────────────────────────────────────────
 //
@@ -302,6 +322,8 @@ impl App {
             checking: false,
             last_error: None,
             log_entries: VecDeque::new(),
+            updater: Updater::new(),
+            update_state: None,
             hwnd,
             #[cfg(not(windows))]
             _tray_icon: tray_icon,
@@ -408,6 +430,39 @@ impl App {
                 }
             }
         }
+
+        while let Ok(event) = self.updater.event_rx.try_recv() {
+            match event {
+                UpdateEvent::Available { version, url } => {
+                    self.log(&format!("⬆ Update v{} available", version));
+                    self.update_state = Some(UpdateState::Available { version, url });
+                }
+                UpdateEvent::Downloading => {
+                    self.update_state = Some(UpdateState::Downloading);
+                }
+                UpdateEvent::Ready => {
+                    self.log("⬆ Update installed — restart to apply");
+                    self.update_state = Some(UpdateState::Ready);
+                }
+                UpdateEvent::Error(e) => {
+                    self.log(&format!("⚠ Update failed: {}", e));
+                    self.update_state = None;
+                }
+            }
+        }
+    }
+
+    /// Relaunch the (already swapped) exe and quit this instance.
+    fn restart_for_update(&mut self, ctx: &egui::Context) {
+        if let Ok(exe) = std::env::current_exe() {
+            let mut cmd = std::process::Command::new(exe);
+            if let Ok(cwd) = std::env::current_dir() {
+                cmd.current_dir(cwd);
+            }
+            let _ = cmd.spawn();
+        }
+        self.should_close.store(true, Ordering::SeqCst);
+        request_native_close(self.hwnd, ctx);
     }
 
     fn log(&mut self, msg: &str) {
@@ -473,6 +528,7 @@ impl eframe::App for App {
                     ui.spacing_mut().item_spacing.y = 10.0;
 
                     self.render_header(ui);
+                    self.render_update_banner(ui, ctx);
                     self.render_timer_card(ui);
                     self.render_usage_card(ui);
                     self.render_error(ui);
@@ -520,6 +576,100 @@ impl App {
                     });
             });
         });
+    }
+
+    /// Clay-accented banner shown while a self-update is available/in flight.
+    fn render_update_banner(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        let Some(state) = &self.update_state else {
+            return;
+        };
+
+        let frame = egui::Frame::none()
+            .fill(CLAY.gamma_multiply(0.14))
+            .stroke(egui::Stroke::new(1.0_f32, CLAY.gamma_multiply(0.6)))
+            .rounding(10.0)
+            .inner_margin(egui::Margin::symmetric(14.0, 10.0));
+
+        let mut action: Option<UpdateBannerAction> = None;
+        frame.show(ui, |ui| {
+            ui.horizontal(|ui| {
+                match state {
+                    UpdateState::Available { version, .. } => {
+                        ui.label(
+                            egui::RichText::new(format!("Update v{} available", version))
+                                .size(12.0)
+                                .strong()
+                                .color(TEXT),
+                        );
+                        ui.with_layout(
+                            egui::Layout::right_to_left(egui::Align::Center),
+                            |ui| {
+                                if ui.small_button("Later").clicked() {
+                                    action = Some(UpdateBannerAction::Dismiss);
+                                }
+                                if ui
+                                    .add(egui::Button::new(
+                                        egui::RichText::new("Download")
+                                            .size(11.0)
+                                            .color(egui::Color32::WHITE),
+                                    )
+                                    .fill(CLAY))
+                                    .clicked()
+                                {
+                                    action = Some(UpdateBannerAction::Download);
+                                }
+                            },
+                        );
+                    }
+                    UpdateState::Downloading => {
+                        ui.spinner();
+                        ui.label(
+                            egui::RichText::new("Downloading update…")
+                                .size(12.0)
+                                .color(TEXT),
+                        );
+                    }
+                    UpdateState::Ready => {
+                        ui.label(
+                            egui::RichText::new("Update installed")
+                                .size(12.0)
+                                .strong()
+                                .color(TEXT),
+                        );
+                        ui.with_layout(
+                            egui::Layout::right_to_left(egui::Align::Center),
+                            |ui| {
+                                if ui
+                                    .add(egui::Button::new(
+                                        egui::RichText::new("Restart now")
+                                            .size(11.0)
+                                            .color(egui::Color32::WHITE),
+                                    )
+                                    .fill(CLAY))
+                                    .clicked()
+                                {
+                                    action = Some(UpdateBannerAction::Restart);
+                                }
+                            },
+                        );
+                    }
+                }
+            });
+        });
+
+        match action {
+            Some(UpdateBannerAction::Download) => {
+                if let Some(UpdateState::Available { url, .. }) = &self.update_state {
+                    let _ = self.updater.cmd_tx.send(UpdateCommand::Download {
+                        url: url.clone(),
+                    });
+                    self.update_state = Some(UpdateState::Downloading);
+                }
+            }
+            Some(UpdateBannerAction::Dismiss) => self.update_state = None,
+            Some(UpdateBannerAction::Restart) => self.restart_for_update(ctx),
+            None => {}
+        }
     }
 
     /// Signature element: the next-session countdown, oversized and monospace.
