@@ -5,6 +5,7 @@ mod claude_runner;
 mod config;
 mod logger;
 mod scheduler;
+mod startup;
 mod updater;
 mod usage_parser;
 
