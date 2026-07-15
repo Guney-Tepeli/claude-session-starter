@@ -73,7 +73,7 @@ src/
 ├── claude_runner.rs  # Claude CLI subprocess wrapper (hidden console)
 ├── usage_parser.rs   # parses `/usage` output (percentages, reset time)
 ├── startup.rs        # "launch at login" via the Windows Run registry key
-├── logger.rs         # persistent app.log with auto-trim
+├── logger.rs         # persistent app.log with auto-trim (%LOCALAPPDATA%\claude-timer-reset)
 ├── updater.rs        # in-app self-update from GitHub Releases
 └── config.rs         # config.json persistence + CLI auto-detection
 ```
