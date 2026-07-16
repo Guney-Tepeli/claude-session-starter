@@ -143,12 +143,13 @@ fn scheduler_loop(
                         if let Some(info) = usage_parser::parse_usage(&output) {
                             let now = Local::now();
                             match info.reset_time {
-                                // A session window lasts at most 5 hours. A reset further
-                                // out means there is no active session and /usage reported
-                                // the weekly reset instead — nothing to wait for.
-                                Some(reset)
-                                    if reset - now <= chrono::Duration::minutes(5 * 60 + 5) =>
-                                {
+                                // A reset clause on the session line means a session is
+                                // active — schedule for it, whatever the window length
+                                // (session windows have been observed at 5h and ~8h; don't
+                                // assume one). The 24h cap guards against /usage reporting
+                                // the *weekly* reset on the session line, seen on older
+                                // CLI versions when no session was active.
+                                Some(reset) if reset - now <= chrono::Duration::hours(24) => {
                                     let target = reset
                                         + chrono::Duration::seconds(cooldown_seconds as i64);
                                     timer_target = Some(target);
@@ -162,8 +163,8 @@ fn scheduler_loop(
                                     )));
                                 }
                                 // No reset clause at all (fresh window: CLI omits
-                                // "resets ..." entirely) or one further out than a
-                                // session window — either way no session is active.
+                                // "resets ..." entirely) or a >24h one (weekly reset
+                                // quirk) — either way no session is active.
                                 _ => {
                                     emit(&tx, Event::UsageChecked(info));
                                     if active {
