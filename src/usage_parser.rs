@@ -18,26 +18,29 @@ pub struct UsageInfo {
 
 /// Parse the /usage command output and extract session info.
 pub fn parse_usage(output: &str) -> Option<UsageInfo> {
+    // The percentage always appears; the "resets ..." clause is omitted
+    // entirely when no session is active (fresh window, nothing to reset).
+    let percent_re = Regex::new(r"Current session:\s+(\d+)%\s+used").ok()?;
+    let percent: u32 = percent_re.captures(output)?.get(1)?.as_str().parse().ok()?;
+
     // Match: "Current session: 68% used · resets Jul 11, 12:30pm (..."
     // The · is a middle-dot; use .*? to be flexible
     // Minutes are omitted for on-the-hour resets: "5pm" instead of "5:00pm"
-    let session_re = Regex::new(
-        r"Current session:\s+(\d+)%\s+used\s+.*?resets\s+(\w+)\s+(\d+),\s*(\d+)(?::(\d+))?(am|pm)",
+    let reset_re = Regex::new(
+        r"Current session:\s+\d+%\s+used\s+.*?resets\s+(\w+)\s+(\d+),\s*(\d+)(?::(\d+))?(am|pm)",
     )
     .ok()?;
 
-    let caps = session_re.captures(output)?;
-
-    let percent: u32 = caps.get(1)?.as_str().parse().ok()?;
-    let month_str = caps.get(2)?.as_str();
-    let day: u32 = caps.get(3)?.as_str().parse().ok()?;
-    let hour: u32 = caps.get(4)?.as_str().parse().ok()?;
-    let minute: u32 = caps
-        .get(5)
-        .map_or(Some(0), |m| m.as_str().parse().ok())?;
-    let ampm = caps.get(6)?.as_str();
-
-    let reset_time = build_datetime(month_str, day, hour, minute, ampm);
+    let reset_time = reset_re.captures(output).and_then(|caps| {
+        let month_str = caps.get(1)?.as_str();
+        let day: u32 = caps.get(2)?.as_str().parse().ok()?;
+        let hour: u32 = caps.get(3)?.as_str().parse().ok()?;
+        let minute: u32 = caps
+            .get(4)
+            .map_or(Some(0), |m| m.as_str().parse().ok())?;
+        let ampm = caps.get(5)?.as_str();
+        build_datetime(month_str, day, hour, minute, ampm)
+    });
 
     // Week percent (optional)
     let week_re = Regex::new(r"Current week \(all models\):\s+(\d+)%").ok()?;
@@ -131,6 +134,23 @@ Current week (Fable): 22% used · resets Jul 11, 4pm (Europe/Istanbul)"#;
         assert_eq!(info.session_percent, 22);
         let reset = info.reset_time.expect("Should have reset time");
         assert_eq!(reset.format("%H:%M").to_string(), "17:00");
+    }
+
+    #[test]
+    fn test_parse_no_reset_clause() {
+        // With no active session the CLI omits "resets ..." entirely
+        let output = r#"You are currently using your subscription to power your Claude Code usage
+
+Current session: 0% used
+Current week (all models): 0% used
+Current week (Fable): 0% used
+
+What's contributing to your limits"#;
+
+        let info = parse_usage(output).expect("Should parse without reset clause");
+        assert_eq!(info.session_percent, 0);
+        assert!(info.reset_time.is_none());
+        assert_eq!(info.week_percent, Some(0));
     }
 
     #[test]

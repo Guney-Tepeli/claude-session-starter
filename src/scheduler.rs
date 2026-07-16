@@ -161,7 +161,10 @@ fn scheduler_loop(
                                         target.format("%H:%M:%S")
                                     )));
                                 }
-                                Some(_) => {
+                                // No reset clause at all (fresh window: CLI omits
+                                // "resets ..." entirely) or one further out than a
+                                // session window — either way no session is active.
+                                _ => {
                                     emit(&tx, Event::UsageChecked(info));
                                     if active {
                                         emit(&tx, Event::Log(
@@ -176,12 +179,6 @@ fn scheduler_loop(
                                                 .into(),
                                         ));
                                     }
-                                }
-                                None => {
-                                    emit(&tx, Event::UsageChecked(info));
-                                    emit(&tx, Event::Log(
-                                        "⚠ Could not parse reset time".into(),
-                                    ));
                                 }
                             }
                         } else {
