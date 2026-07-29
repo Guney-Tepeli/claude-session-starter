@@ -56,6 +56,59 @@ pub fn parse_usage(output: &str) -> Option<UsageInfo> {
     })
 }
 
+/// Turn known Claude CLI failure text into a clear, actionable message.
+///
+/// When `/usage` can't be parsed it's usually because the CLI printed an
+/// error instead of usage data (expired login, bad model, rate limit).
+/// Returns a user-facing string for a recognized failure, or `None` when
+/// the output is unrecognized (caller falls back to a generic message).
+pub fn classify_cli_error(output: &str) -> Option<String> {
+    let lower = output.to_lowercase();
+
+    // Auth / login problems
+    if lower.contains("login expired")
+        || lower.contains("please run /login")
+        || lower.contains("/login")
+        || lower.contains("not logged in")
+        || lower.contains("invalid api key")
+        || lower.contains("authentication")
+        || lower.contains("unauthorized")
+        || lower.contains("please log in")
+    {
+        return Some("Claude oturumu düştü — terminalde `claude` açıp `/login` yap".into());
+    }
+
+    // Model selection / config problems
+    if lower.contains("issue with the selected model")
+        || lower.contains("model not found")
+        || lower.contains("invalid model")
+        || lower.contains("unknown model")
+    {
+        return Some("Seçili model hatalı — ayarlardan modeli düzelt".into());
+    }
+
+    // Rate limit / overload
+    if lower.contains("rate limit")
+        || lower.contains("overloaded")
+        || lower.contains("too many requests")
+        || lower.contains("429")
+    {
+        return Some("Claude şu an meşgul (rate limit) — sonraki kontrolde tekrar denenecek".into());
+    }
+
+    // Network / connectivity
+    if lower.contains("dns")
+        || lower.contains("network")
+        || lower.contains("connection refused")
+        || lower.contains("timed out")
+        || lower.contains("no such host")
+    {
+        return Some("Ağ hatası — internet bağlantısını kontrol et".into());
+    }
+
+    None
+}
+
 /// Convert parsed components into a `DateTime<Local>`.
 fn build_datetime(
     month_str: &str,
@@ -151,6 +204,25 @@ What's contributing to your limits"#;
         assert_eq!(info.session_percent, 0);
         assert!(info.reset_time.is_none());
         assert_eq!(info.week_percent, Some(0));
+    }
+
+    #[test]
+    fn test_classify_login_error() {
+        let out = "Login expired · Please run /login";
+        assert!(classify_cli_error(out).unwrap().contains("oturum"));
+    }
+
+    #[test]
+    fn test_classify_model_error() {
+        let out = "There was an issue with the selected model (some-model)";
+        assert!(classify_cli_error(out).unwrap().contains("model"));
+    }
+
+    #[test]
+    fn test_classify_unknown_is_none() {
+        // Valid usage text isn't an error — must not be misclassified
+        let out = "Current session: 20% used · resets Jul 12, 5pm";
+        assert!(classify_cli_error(out).is_none());
     }
 
     #[test]

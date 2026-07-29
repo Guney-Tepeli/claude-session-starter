@@ -183,7 +183,12 @@ fn scheduler_loop(
                                 }
                             }
                         } else {
-                            emit(&tx, Event::Error("Could not parse usage output".into()));
+                            // The CLI often prints an error (expired login, bad
+                            // model, rate limit) instead of usage data. Surface a
+                            // clear cause when we recognize one; otherwise stay generic.
+                            let msg = usage_parser::classify_cli_error(&output)
+                                .unwrap_or_else(|| "Could not parse usage output".into());
+                            emit(&tx, Event::Error(msg));
                             // Full raw output goes to app.log; UI gets a preview
                             crate::logger::log(&format!("RAW /usage output:\n{}", output));
                             let preview: String = output.chars().take(200).collect();
@@ -191,7 +196,9 @@ fn scheduler_loop(
                         }
                     }
                     Err(e) => {
-                        emit(&tx, Event::Error(e));
+                        // A non-zero exit also carries CLI error text — classify it too.
+                        let msg = usage_parser::classify_cli_error(&e).unwrap_or(e);
+                        emit(&tx, Event::Error(msg));
                     }
                 }
 
