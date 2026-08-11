@@ -35,9 +35,7 @@ pub fn parse_usage(output: &str) -> Option<UsageInfo> {
         let month_str = caps.get(1)?.as_str();
         let day: u32 = caps.get(2)?.as_str().parse().ok()?;
         let hour: u32 = caps.get(3)?.as_str().parse().ok()?;
-        let minute: u32 = caps
-            .get(4)
-            .map_or(Some(0), |m| m.as_str().parse().ok())?;
+        let minute: u32 = caps.get(4).map_or(Some(0), |m| m.as_str().parse().ok())?;
         let ampm = caps.get(5)?.as_str();
         build_datetime(month_str, day, hour, minute, ampm)
     });
@@ -93,7 +91,9 @@ pub fn classify_cli_error(output: &str) -> Option<String> {
         || lower.contains("too many requests")
         || lower.contains("429")
     {
-        return Some("Claude şu an meşgul (rate limit) — sonraki kontrolde tekrar denenecek".into());
+        return Some(
+            "Claude şu an meşgul (rate limit) — sonraki kontrolde tekrar denenecek".into(),
+        );
     }
 
     // Network / connectivity
