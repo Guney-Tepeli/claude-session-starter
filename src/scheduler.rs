@@ -19,6 +19,8 @@ pub enum Event {
     UsageChecked(UsageInfo),
     /// Timer target set for this time
     TimerSet(DateTime<Local>),
+    /// No valid timer can be scheduled from the latest usage check
+    TimerCleared,
     /// Claude responded to our test message
     MessageSent(String),
     /// Something went wrong
@@ -170,12 +172,28 @@ fn scheduler_loop(
                                         )),
                                     );
                                 }
-                                // No reset clause at all (fresh window: CLI omits
-                                // "resets ..." entirely) or a >24h one (weekly reset
-                                // quirk) — either way no session is active.
+                                // No reset clause at all can mean either a fresh
+                                // window (0%) or a CLI output format we do not
+                                // understand yet. Only auto-start on 0%; otherwise
+                                // wait for a future check instead of spamming prompts.
                                 _ => {
+                                    let has_usage = info.session_percent > 0;
                                     emit(&tx, Event::UsageChecked(info));
-                                    if active {
+                                    if active && has_usage {
+                                        timer_target = None;
+                                        emit(&tx, Event::TimerCleared);
+                                        emit(
+                                            &tx,
+                                            Event::Log(
+                                                "⚠ Reset time not found — waiting for the next check"
+                                                    .into(),
+                                            ),
+                                        );
+                                        crate::logger::log(&format!(
+                                            "RAW /usage output without reset time:\n{}",
+                                            output
+                                        ));
+                                    } else if active {
                                         emit(
                                             &tx,
                                             Event::Log(
@@ -259,6 +277,7 @@ fn emit(tx: &mpsc::Sender<Event>, ev: Event) {
             i.session_percent, i.reset_time, i.week_percent
         ),
         Event::TimerSet(t) => format!("timer set → {}", t.format("%Y-%m-%d %H:%M:%S")),
+        Event::TimerCleared => "timer cleared".into(),
         Event::MessageSent(r) => format!("message sent · response: {}", r),
         Event::Error(e) => format!("ERROR: {}", e),
         Event::Log(m) => m.clone(),

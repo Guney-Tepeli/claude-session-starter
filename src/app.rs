@@ -440,6 +440,9 @@ impl App {
                 Event::TimerSet(target) => {
                     self.timer_target = Some(target);
                 }
+                Event::TimerCleared => {
+                    self.timer_target = None;
+                }
                 Event::MessageSent(response) => {
                     self.log(&format!("✓ Response: {}", response));
                     self.timer_target = None;

@@ -23,11 +23,13 @@ pub fn parse_usage(output: &str) -> Option<UsageInfo> {
     let percent_re = Regex::new(r"Current session:\s+(\d+)%\s+used").ok()?;
     let percent: u32 = percent_re.captures(output)?.get(1)?.as_str().parse().ok()?;
 
-    // Match: "Current session: 68% used · resets Jul 11, 12:30pm (..."
+    // Match old and new CLI variants:
+    // "Current session: 68% used · resets Jul 11, 12:30pm (..."
+    // "Current session: 100% used · resets Aug 11 at 11:20pm (..."
     // The · is a middle-dot; use .*? to be flexible
     // Minutes are omitted for on-the-hour resets: "5pm" instead of "5:00pm"
     let reset_re = Regex::new(
-        r"Current session:\s+\d+%\s+used\s+.*?resets\s+(\w+)\s+(\d+),\s*(\d+)(?::(\d+))?(am|pm)",
+        r"Current session:\s+\d+%\s+used\s+.*?resets\s+(\w+)\s+(\d+)(?:,|\s+at)\s*(\d+)(?::(\d+))?(am|pm)",
     )
     .ok()?;
 
@@ -187,6 +189,20 @@ Current week (Fable): 22% used · resets Jul 11, 4pm (Europe/Istanbul)"#;
         assert_eq!(info.session_percent, 22);
         let reset = info.reset_time.expect("Should have reset time");
         assert_eq!(reset.format("%H:%M").to_string(), "17:00");
+    }
+
+    #[test]
+    fn test_parse_at_reset_format() {
+        let output = r#"You are currently using your subscription to power your Claude Code usage
+
+Current session: 100% used · resets Aug 11 at 11:20pm (Europe/Istanbul)
+Current week (all models): 32% used · resets Aug 16 at 1pm (Europe/Istanbul)"#;
+
+        let info = parse_usage(output).expect("Should parse at-style reset");
+        assert_eq!(info.session_percent, 100);
+        let reset = info.reset_time.expect("Should have reset time");
+        assert_eq!(reset.format("%H:%M").to_string(), "23:20");
+        assert_eq!(info.week_percent, Some(32));
     }
 
     #[test]
