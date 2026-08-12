@@ -41,9 +41,10 @@ Close the window and it keeps working from the system tray. Left-click the tray 
 
 ### macOS
 
-Build from source (see below), then run the binary:
+Build from source (see below), then run the binary from inside the project directory:
 
 ```bash
+cd ~/Downloads/claude-timer-reset-1.2.6
 cargo build --release
 ./target/release/claude-timer-reset
 ```
